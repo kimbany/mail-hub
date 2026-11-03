@@ -55,6 +55,7 @@ async function listInbox(acc, limit = 50) {
         uid: m.uid,
         subject: m.envelope.subject || '(제목 없음)',
         from: fmtAddr(m.envelope.from),
+        to: fmtAddr(m.envelope.to),
         date: m.envelope.date,
         seen: m.flags.has('\\Seen'),
       });
@@ -82,12 +83,14 @@ async function getMessage(acc, uid) {
 }
 
 // 규칙은 위에서부터 차례로 검사하고, 처음 맞는 규칙의 분류를 쓴다.
+// field: from(보낸사람) · to(받는사람) · subject(제목)
+const RULE_FIELDS = ['from', 'to', 'subject'];
 function classify(msg, rules) {
   for (const r of rules) {
-    const target = (r.field === 'from' ? msg.from : msg.subject).toLowerCase();
+    const target = String(msg[r.field] || '').toLowerCase();
     if (target.includes(r.keyword.toLowerCase())) return r.category;
   }
   return null;
 }
 
-module.exports = { PROVIDERS, testLogin, listInbox, getMessage, classify };
+module.exports = { PROVIDERS, RULE_FIELDS, testLogin, listInbox, getMessage, classify };
