@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>메일 통합 조회</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- 로그인 / 최초 설정 -->
+  <section id="gate" class="gate hidden">
+    <form id="gate-form" class="card">
+      <h1>메일 통합 조회</h1>
+      <p id="gate-msg"></p>
+      <input id="gate-pw" type="password" placeholder="사이트 비밀번호" autocomplete="current-password" required>
+      <button type="submit" id="gate-btn">로그인</button>
+      <p class="error" id="gate-err"></p>
+    </form>
+  </section>
+
+  <div id="app" class="app hidden">
+    <aside class="sidebar">
+      <div class="brand">메일 통합 조회</div>
+      <ul id="account-list"></ul>
+      <button id="add-account-btn" class="ghost">+ 계정 추가</button>
+      <button id="logout-btn" class="link">로그아웃</button>
+    </aside>
+
+    <main class="main">
+      <header class="toolbar">
+        <div>
+          <h2 id="account-title">계정을 추가하세요</h2>
+          <div id="category-tabs" class="tabs"></div>
+        </div>
+        <div class="actions">
+          <button id="rules-btn" class="ghost" disabled>분류 규칙</button>
+          <button id="refresh-btn" class="ghost" disabled>새로고침</button>
+        </div>
+      </header>
+      <div class="panes">
+        <ul id="message-list" class="message-list"></ul>
+        <article id="reader" class="reader"><p class="muted">메일을 선택하세요.</p></article>
+      </div>
+    </main>
+  </div>
+
+  <!-- 계정 추가 -->
+  <dialog id="account-dialog">
+    <form id="account-form" method="dialog">
+      <h3>메일 계정 추가</h3>
+      <label>메일 종류
+        <select name="provider" id="provider-select"></select>
+      </label>
+      <div id="custom-server" class="hidden row">
+        <label>IMAP 서버 <input name="host" placeholder="imap.example.com"></label>
+        <label>포트 <input name="port" value="993" size="4"></label>
+      </div>
+      <label>메일 주소 (아이디) <input name="email" required placeholder="you@naver.com"></label>
+      <label>비밀번호 또는 앱 비밀번호 <input name="password" type="password" required autocomplete="off"></label>
+      <label>표시 이름 (선택) <input name="label" placeholder="예: 회사 메일"></label>
+      <p id="provider-help" class="help"></p>
+      <p class="error" id="account-err"></p>
+      <div class="row end">
+        <button type="button" class="ghost" data-close>취소</button>
+        <button type="submit" id="account-save">연결 확인 후 추가</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- 분류 규칙 -->
+  <dialog id="rules-dialog">
+    <form id="rule-form" method="dialog">
+      <h3>분류 규칙</h3>
+      <p class="help">위에서부터 차례로 검사해서 처음 맞는 규칙의 분류로 들어가요. 맞는 규칙이 없으면 "미분류"예요.</p>
+      <ul id="rule-list" class="rule-list"></ul>
+      <div class="row">
+        <input name="category" placeholder="분류 이름 (예: 쇼핑)" required>
+        <select name="field">
+          <option value="from">보낸사람에</option>
+          <option value="subject">제목에</option>
+        </select>
+        <input name="keyword" placeholder="포함된 글자 (예: coupang)" required>
+        <button type="submit">추가</button>
+      </div>
+      <p class="error" id="rule-err"></p>
+      <div class="row end"><button type="button" class="ghost" data-close>닫기</button></div>
+    </form>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>
