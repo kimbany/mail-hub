@@ -1,21 +1,23 @@
-// 계정·분류 규칙·사이트 비밀번호를 data/store.json 에 저장한다.
+// 계정·분류 규칙·사이트 비밀번호를 저장한다 (Postgres 또는 data/store.json).
 // 메일 비밀번호는 AES-256-GCM 으로 암호화해서만 저장한다.
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
+// 저장 위치: DATABASE_URL 이 있으면 Postgres(서버 배포용), 없으면 data/store.json(내 PC용).
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 const STORE_FILE = path.join(DATA_DIR, 'store.json');
 const KEY_FILE = path.join(DATA_DIR, 'secret.key');
+const DATABASE_URL = process.env.DATABASE_URL;
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
 function loadKey() {
   if (process.env.MASTER_KEY) {
-    const k = Buffer.from(process.env.MASTER_KEY, 'base64');
-    if (k.length !== 32) throw new Error('MASTER_KEY 는 base64 로 인코딩한 32바이트여야 합니다.');
-    return k;
+    // 어떤 문자열이 와도 SHA-256 으로 32바이트 키를 만든다.
+    return crypto.createHash('sha256').update(process.env.MASTER_KEY).digest();
   }
+  if (DATABASE_URL) throw new Error('DATABASE_URL 을 쓸 때는 MASTER_KEY 환경변수가 꼭 필요합니다.');
   if (!fs.existsSync(KEY_FILE)) {
     fs.writeFileSync(KEY_FILE, crypto.randomBytes(32).toString('base64'), { mode: 0o600 });
   }
@@ -50,20 +52,50 @@ function verifyPassword(pw, stored) {
 }
 
 let state = { passwordHash: null, accounts: [], rules: [] };
-if (fs.existsSync(STORE_FILE)) state = { ...state, ...JSON.parse(fs.readFileSync(STORE_FILE, 'utf8')) };
+let pool = null;
 
+// 전체 상태를 한 덩어리 JSON 으로 저장한다 (개인용이라 데이터가 작다).
+async function init() {
+  if (DATABASE_URL) {
+    const { Pool } = require('pg');
+    pool = new Pool({ connectionString: DATABASE_URL, ssl: /localhost|127\.0\.0\.1/.test(DATABASE_URL) ? false : { rejectUnauthorized: false }, max: 3 });
+    await pool.query('CREATE TABLE IF NOT EXISTS mailhub_state (id int PRIMARY KEY, data jsonb NOT NULL)');
+    const r = await pool.query('SELECT data FROM mailhub_state WHERE id = 1');
+    if (r.rows[0]) state = { ...state, ...r.rows[0].data };
+  } else if (fs.existsSync(STORE_FILE)) {
+    state = { ...state, ...JSON.parse(fs.readFileSync(STORE_FILE, 'utf8')) };
+  }
+}
+
+let saving = Promise.resolve();
 function save() {
-  const tmp = STORE_FILE + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(state, null, 2), { mode: 0o600 });
-  fs.renameSync(tmp, STORE_FILE);
+  const snapshot = JSON.stringify(state);
+  saving = saving.then(async () => {
+    if (pool) {
+      await pool.query('INSERT INTO mailhub_state (id, data) VALUES (1, $1) ON CONFLICT (id) DO UPDATE SET data = $1', [snapshot]);
+    } else {
+      const tmp = STORE_FILE + '.tmp';
+      fs.writeFileSync(tmp, snapshot, { mode: 0o600 });
+      fs.renameSync(tmp, STORE_FILE);
+    }
+  }).catch((e) => console.error('저장 실패:', e));
+  return saving;
 }
 
 const id = () => crypto.randomBytes(8).toString('hex');
 
+// SITE_PASSWORD 환경변수가 있으면 그것이 사이트 비밀번호다 (서버 배포 시 남이 먼저 비밀번호를 정하는 것을 막는다).
+const SITE_PASSWORD = process.env.SITE_PASSWORD;
+const sitePwHash = SITE_PASSWORD ? hashPassword(SITE_PASSWORD) : null;
+
 module.exports = {
-  isSetup: () => !!state.passwordHash,
-  setPassword(pw) { state.passwordHash = hashPassword(pw); save(); },
-  checkPassword: (pw) => !!state.passwordHash && verifyPassword(pw, state.passwordHash),
+  init,
+  isSetup: () => !!(sitePwHash || state.passwordHash),
+  setPassword(pw) { if (sitePwHash) throw new Error('SITE_PASSWORD 로 설정되어 있습니다.'); state.passwordHash = hashPassword(pw); return save(); },
+  checkPassword(pw) {
+    const h = sitePwHash || state.passwordHash;
+    return !!h && verifyPassword(pw, h);
+  },
 
   listAccounts: () => state.accounts.map(({ passEnc, ...a }) => a),
   getAccountWithSecret(accountId) {

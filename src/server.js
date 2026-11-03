@@ -5,9 +5,22 @@ const store = require('./store');
 const mail = require('./mail');
 
 const PORT = Number(process.env.PORT || 3000);
-const HOST = process.env.HOST || '127.0.0.1';
+// Render 같은 호스팅에서는 외부 접속을 받아야 하므로 0.0.0.0, 내 PC 에서는 127.0.0.1.
+const HOST = process.env.HOST || (process.env.RENDER ? '0.0.0.0' : '127.0.0.1');
+const PUBLIC = !['127.0.0.1', 'localhost', '::1'].includes(HOST);
 
 const app = express();
+app.set('trust proxy', 1); // HTTPS 프록시 뒤에서 req.secure 를 올바르게 판단
+app.disable('x-powered-by');
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  if (req.secure) res.setHeader('Strict-Transport-Security', 'max-age=31536000');
+  // 메일 본문 iframe(srcdoc)은 이 정책을 물려받지 않도록 frame-src 를 허용하고, 앱 자체는 자기 스크립트만 쓴다.
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http:; font-src 'self' https: data:; frame-src 'self' about:; object-src 'none'; base-uri 'none'; form-action 'self'");
+  next();
+});
 app.use(express.json({ limit: '100kb' }));
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
@@ -19,10 +32,11 @@ function getCookie(req, name) {
   const m = (req.headers.cookie || '').match(new RegExp(`(?:^|; )${name}=([^;]+)`));
   return m ? m[1] : null;
 }
-function startSession(res) {
+function startSession(req, res) {
   const token = crypto.randomBytes(32).toString('hex');
   sessions.set(token, Date.now() + SESSION_MS);
-  res.setHeader('Set-Cookie', `sid=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_MS / 1000}`);
+  const secure = req.secure ? '; Secure' : '';
+  res.setHeader('Set-Cookie', `sid=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_MS / 1000}${secure}`);
 }
 function loggedIn(req) {
   const t = getCookie(req, 'sid');
@@ -48,6 +62,7 @@ function friendlyError(e) {
   return msg;
 }
 
+app.get('/healthz', (req, res) => res.send('ok'));
 app.get('/api/status', (req, res) => res.json({ setup: store.isSetup(), loggedIn: loggedIn(req) }));
 
 app.post('/api/setup', (req, res) => {
@@ -55,19 +70,24 @@ app.post('/api/setup', (req, res) => {
   const { password } = req.body || {};
   if (!password || password.length < 8) return res.status(400).json({ error: '비밀번호는 8자 이상이어야 합니다.' });
   store.setPassword(password);
-  startSession(res);
+  startSession(req, res);
   res.json({ ok: true });
 });
 
+// 비밀번호를 연달아 틀리면 잠시 잠근다 (5번 틀릴 때마다 15분).
 let failed = 0;
+let lockedUntil = 0;
 app.post('/api/login', (req, res) => {
-  if (failed >= 10) return res.status(429).json({ error: '시도가 너무 많습니다. 서버를 다시 시작하세요.' });
+  if (Date.now() < lockedUntil) {
+    const min = Math.ceil((lockedUntil - Date.now()) / 60000);
+    return res.status(429).json({ error: `비밀번호를 여러 번 틀려서 ${min}분 동안 잠겼습니다.` });
+  }
   if (!store.checkPassword((req.body || {}).password || '')) {
-    failed++;
+    if (++failed % 5 === 0) lockedUntil = Date.now() + 15 * 60 * 1000;
     return res.status(401).json({ error: '비밀번호가 틀렸습니다.' });
   }
   failed = 0;
-  startSession(res);
+  startSession(req, res);
   res.json({ ok: true });
 });
 
@@ -139,7 +159,13 @@ app.delete('/api/rules/:id', auth, (req, res) => {
 });
 
 if (require.main === module) {
-  app.listen(PORT, HOST, () => console.log(`메일 통합 조회: http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`));
+  if (PUBLIC && !process.env.SITE_PASSWORD) {
+    console.error('인터넷에 공개할 때는 SITE_PASSWORD 환경변수로 사이트 비밀번호를 꼭 정해야 합니다.');
+    process.exit(1);
+  }
+  store.init().then(() => {
+    app.listen(PORT, HOST, () => console.log(`메일 통합 조회: http://${PUBLIC ? 'localhost' : HOST}:${PORT}`));
+  }).catch((e) => { console.error('저장소를 열 수 없습니다:', e.message); process.exit(1); });
 }
 
 module.exports = app;

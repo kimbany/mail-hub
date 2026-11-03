@@ -1,0 +1,19 @@
+# Render 원클릭 배포 설정 (Blueprint). README 의 "인터넷에 올리기" 참고.
+services:
+  - type: web
+    name: mail-hub
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: SITE_PASSWORD   # 사이트에 들어갈 때 쓸 비밀번호 (배포할 때 직접 입력)
+        sync: false
+      - key: DATABASE_URL    # Neon 에서 복사한 Postgres 주소 (배포할 때 직접 입력)
+        sync: false
+      - key: MASTER_KEY      # 메일 비밀번호 암호화 키 (Render 가 자동 생성)
+        generateValue: true
