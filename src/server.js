@@ -122,16 +122,40 @@ app.delete('/api/accounts/:id', auth, (req, res) => {
 const cache = new Map(); // accountId -> { at, list }
 const CACHE_MS = 60 * 1000;
 
+// 계정 하나의 받은메일 목록 (1분 캐시). 전체 메일함도 이 캐시를 같이 쓴다.
+async function inboxOf(acc, { refresh, limit } = {}) {
+  let entry = cache.get(acc.id);
+  if (!entry || refresh || Date.now() - entry.at > CACHE_MS) {
+    entry = { at: Date.now(), list: await mail.listInbox(acc, Math.min(Number(limit) || 50, 200)) };
+    cache.set(acc.id, entry);
+  }
+  return entry.list;
+}
+
 app.get('/api/accounts/:id/messages', auth, wrap(async (req, res) => {
   const acc = store.getAccountWithSecret(req.params.id);
   if (!acc) return res.status(404).json({ error: '계정을 찾을 수 없습니다.' });
-  let entry = cache.get(acc.id);
-  if (!entry || req.query.refresh || Date.now() - entry.at > CACHE_MS) {
-    entry = { at: Date.now(), list: await mail.listInbox(acc, Math.min(Number(req.query.limit) || 50, 200)) };
-    cache.set(acc.id, entry);
-  }
+  const list = await inboxOf(acc, req.query);
   const rules = store.listRules(acc.id);
-  res.json(entry.list.map((m) => ({ ...m, category: mail.classify(m, rules) })));
+  res.json(list.map((m) => ({ ...m, accountId: acc.id, category: mail.classify(m, rules) })));
+}));
+
+// 전체 메일함: 모든 계정의 받은메일을 날짜순으로 합치고, "전체 분류" 규칙으로 분류한다.
+// 한 계정이 실패해도 나머지는 보여주고, 실패한 계정은 errors 로 알려준다.
+app.get('/api/all/messages', auth, wrap(async (req, res) => {
+  const rules = store.listRules(store.ALL);
+  const errors = [];
+  const lists = await Promise.all(store.listAccounts().map(async (a) => {
+    try {
+      const list = await inboxOf(store.getAccountWithSecret(a.id), req.query);
+      return list.map((m) => ({ ...m, accountId: a.id, category: mail.classify(m, rules) }));
+    } catch (e) {
+      errors.push({ accountId: a.id, label: a.label, error: friendlyError(e) });
+      return [];
+    }
+  }));
+  const messages = lists.flat().sort((x, y) => new Date(y.date || 0) - new Date(x.date || 0));
+  res.json({ messages, errors });
 }));
 
 app.get('/api/accounts/:id/messages/:uid', auth, wrap(async (req, res) => {
@@ -143,12 +167,16 @@ app.get('/api/accounts/:id/messages/:uid', auth, wrap(async (req, res) => {
 }));
 
 // ---- 분류 규칙 ----
+// 계정 id 자리에 "__all" 을 쓰면 전체 메일함의 분류 규칙이다.
+const ruleOwnerOk = (id) => id === store.ALL || store.listAccounts().some((a) => a.id === id);
+
 app.get('/api/accounts/:id/rules', auth, (req, res) => res.json(store.listRules(req.params.id)));
 
 app.post('/api/accounts/:id/rules', auth, (req, res) => {
   const { category, field, keyword } = req.body || {};
-  if (!category || !keyword || !['from', 'subject'].includes(field)) {
-    return res.status(400).json({ error: '분류 이름, 대상(보낸사람/제목), 키워드가 필요합니다.' });
+  if (!ruleOwnerOk(req.params.id)) return res.status(404).json({ error: '계정을 찾을 수 없습니다.' });
+  if (!category || !keyword || !mail.RULE_FIELDS.includes(field)) {
+    return res.status(400).json({ error: '분류 이름, 대상(보낸사람/받는사람/제목), 키워드가 필요합니다.' });
   }
   res.json(store.addRule({ accountId: req.params.id, category: category.trim(), field, keyword: keyword.trim() }));
 });

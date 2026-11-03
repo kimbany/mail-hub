@@ -4,7 +4,8 @@
   "description": "Gmail·네이버·다음·카카오·네이트 메일을 한곳에서 보는 통합 메일 조회 사이트",
   "main": "src/server.js",
   "scripts": {
-    "start": "node src/server.js"
+    "start": "node src/server.js",
+    "test": "node --test"
   },
   "dependencies": {
     "express": "^5.3.0",

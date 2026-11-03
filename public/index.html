@@ -21,7 +21,9 @@
   <div id="app" class="app hidden">
     <aside class="sidebar">
       <div class="brand">메일 통합 조회</div>
-      <ul id="account-list"></ul>
+      <ul id="all-box" class="acc-list"><li data-id="__all"><div class="acc-name">📥 전체 메일함
+        <span class="acc-sub">모든 계정을 한 목록에</span></div></li></ul>
+      <ul id="account-list" class="acc-list"></ul>
       <button id="add-account-btn" class="ghost">+ 계정 추가</button>
       <button id="logout-btn" class="link">로그아웃</button>
     </aside>
@@ -70,7 +72,8 @@
   <!-- 분류 규칙 -->
   <dialog id="rules-dialog">
     <form id="rule-form" method="dialog">
-      <h3>분류 규칙</h3>
+      <h3 id="rules-title">분류 규칙</h3>
+      <p class="help" id="rules-scope"></p>
       <p class="help">위에서부터 차례로 검사해서 처음 맞는 규칙의 분류로 들어가요. 맞는 규칙이 없으면 "미분류"예요.</p>
       <ul id="rule-list" class="rule-list"></ul>
       <div class="row">
@@ -78,6 +81,7 @@
         <select name="field">
           <option value="from">보낸사람에</option>
           <option value="subject">제목에</option>
+          <option value="to">받는사람에</option>
         </select>
         <input name="keyword" placeholder="포함된 글자 (예: coupang)" required>
         <button type="submit">추가</button>

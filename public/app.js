@@ -10,6 +10,8 @@ const HELP = {
   custom: '그 밖의 메일: IMAP 서버 주소와 포트(보통 993)를 직접 입력하세요.',
 };
 
+const ALL = '__all'; // 전체 메일함
+const FIELD_NAME = { from: '보낸사람', to: '받는사람', subject: '제목' };
 const state = { providers: {}, accounts: [], current: null, messages: [], category: '__all', rules: [] };
 
 async function api(path, opts = {}) {
@@ -53,11 +55,13 @@ $('#logout-btn').onclick = async () => { await api('/api/logout', { method: 'POS
 async function loadAccounts() {
   state.accounts = await api('/api/accounts');
   renderAccounts();
-  if (!state.current && state.accounts[0]) selectAccount(state.accounts[0].id);
+  if (!state.current && state.accounts.length) selectAccount(state.accounts.length > 1 ? ALL : state.accounts[0].id);
   if (!state.accounts.length) { state.current = null; renderEmpty(); }
 }
 
 function renderAccounts() {
+  $('#all-box').classList.toggle('hidden', !state.accounts.length);
+  $('#all-box li').classList.toggle('active', state.current === ALL);
   const ul = $('#account-list');
   ul.innerHTML = state.accounts.map((a) => `
     <li data-id="${a.id}" class="${state.current === a.id ? 'active' : ''}">
@@ -80,6 +84,8 @@ $('#account-list').addEventListener('click', async (e) => {
   const li = e.target.closest('li[data-id]');
   if (li) selectAccount(li.dataset.id);
 });
+$('#all-box').addEventListener('click', () => selectAccount(ALL));
+const accLabel = (id) => state.accounts.find((a) => a.id === id)?.label || '';
 
 function renderEmpty() {
   $('#account-title').textContent = '계정을 추가하세요';
@@ -93,15 +99,17 @@ async function selectAccount(id, refresh = false) {
   state.current = id;
   state.category = refresh ? state.category : '__all';
   renderAccounts();
-  const acc = state.accounts.find((a) => a.id === id);
-  $('#account-title').textContent = `${acc.label} 받은메일`;
+  const all = id === ALL;
+  $('#account-title').textContent = all ? '전체 메일함' : `${accLabel(id)} 받은메일`;
   $('#rules-btn').disabled = $('#refresh-btn').disabled = false;
   $('#message-list').innerHTML = '<li class="empty">메일을 불러오는 중…</li>';
   $('#reader').innerHTML = '<p class="muted">메일을 선택하세요.</p>';
   try {
-    const list = await api(`/api/accounts/${id}/messages${refresh ? '?refresh=1' : ''}`);
+    const q = refresh ? '?refresh=1' : '';
+    const data = all ? await api(`/api/all/messages${q}`) : { messages: await api(`/api/accounts/${id}/messages${q}`), errors: [] };
     if (state.current !== id) return;
-    state.messages = list;
+    state.messages = data.messages;
+    state.errors = data.errors;
     renderMessages();
   } catch (err) {
     $('#message-list').innerHTML = `<li class="empty error">${esc(err.message)}</li>`;
@@ -122,11 +130,13 @@ function renderMessages() {
 
   const shown = state.messages.filter((m) =>
     state.category === '__all' || (state.category === '__none' ? !m.category : m.category === state.category));
-  $('#message-list').innerHTML = shown.length ? shown.map((m) => `
-    <li data-uid="${m.uid}" class="${m.seen ? '' : 'unread'}">
-      <div class="meta"><span>${esc(m.from)}</span><span>${fmtDate(m.date)}</span></div>
+  const all = state.current === ALL;
+  const warn = (state.errors || []).map((e) => `<li class="empty list-warn">⚠ ${esc(e.label)}: ${esc(e.error)}</li>`).join('');
+  $('#message-list').innerHTML = warn + (shown.length ? shown.map((m) => `
+    <li data-acc="${m.accountId}" data-uid="${m.uid}" class="${m.seen ? '' : 'unread'}">
+      <div class="meta"><span>${all ? `<span class="badge acc">${esc(accLabel(m.accountId))}</span>` : ''}${esc(m.from)}</span><span>${fmtDate(m.date)}</span></div>
       <div class="subj">${m.category && state.category === '__all' ? `<span class="badge">${esc(m.category)}</span>` : ''}${esc(m.subject)}</div>
-    </li>`).join('') : '<li class="empty">메일이 없어요.</li>';
+    </li>`).join('') : '<li class="empty">메일이 없어요.</li>');
 }
 
 $('#category-tabs').addEventListener('click', (e) => {
@@ -154,8 +164,8 @@ $('#message-list').addEventListener('click', async (e) => {
   const reader = $('#reader');
   reader.innerHTML = '<p class="muted">불러오는 중…</p>';
   try {
-    const m = await api(`/api/accounts/${state.current}/messages/${li.dataset.uid}`);
-    const hit = state.messages.find((x) => x.uid === m.uid);
+    const m = await api(`/api/accounts/${li.dataset.acc}/messages/${li.dataset.uid}`);
+    const hit = state.messages.find((x) => x.uid === m.uid && x.accountId === li.dataset.acc);
     if (hit) hit.seen = true;
     reader.innerHTML = `
       <h3>${esc(m.subject)}</h3>
@@ -214,11 +224,17 @@ const ruleDlg = $('#rules-dialog');
 async function loadRules() {
   state.rules = await api(`/api/accounts/${state.current}/rules`);
   $('#rule-list').innerHTML = state.rules.length ? state.rules.map((r) => `
-    <li><span><b>${esc(r.category)}</b> ← ${r.field === 'from' ? '보낸사람' : '제목'}에 "${esc(r.keyword)}" 포함</span>
+    <li><span><b>${esc(r.category)}</b> ← ${FIELD_NAME[r.field] || r.field}에 "${esc(r.keyword)}" 포함</span>
     <button type="button" data-rule="${r.id}">삭제</button></li>`).join('')
     : '<li class="muted">아직 규칙이 없어요.</li>';
 }
-$('#rules-btn').onclick = async () => { $('#rule-err').textContent = ''; await loadRules(); ruleDlg.showModal(); };
+$('#rules-btn').onclick = async () => {
+  $('#rule-err').textContent = '';
+  const all = state.current === ALL;
+  $('#rules-title').textContent = all ? '전체 메일함 분류 규칙' : `${accLabel(state.current)} 분류 규칙`;
+  $('#rules-scope').textContent = all
+    ? '전체 메일함에서 쓰는 분류예요. 모든 계정의 메일에 적용돼요. (계정별 분류와는 따로 관리돼요)'
+    : '이 계정 메일함에서만 쓰는 분류예요. 모든 계정에 걸친 분류는 "전체 메일함"에서 만드세요.'; await loadRules(); ruleDlg.showModal(); };
 $('#rule-list').addEventListener('click', async (e) => {
   const b = e.target.closest('[data-rule]');
   if (!b) return;

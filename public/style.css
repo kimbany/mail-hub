@@ -30,13 +30,15 @@ label input, label select { color: var(--text); }
 .app { display: grid; grid-template-columns: 240px 1fr; height: 100vh; }
 .sidebar { background: var(--panel); border-right: 1px solid var(--line); padding: 16px; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; }
 .brand { font-weight: 700; font-size: 16px; margin-bottom: 6px; }
-#account-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
-#account-list li { padding: 8px 10px; border-radius: 8px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 6px; }
-#account-list li.active { background: var(--accent-soft); }
-#account-list .acc-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#account-list .acc-sub { display: block; color: var(--muted); font-size: 12px; }
-#account-list .del { background: none; color: var(--muted); padding: 2px 6px; visibility: hidden; }
-#account-list li:hover .del { visibility: visible; }
+.acc-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.acc-list li { padding: 8px 10px; border-radius: 8px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+.acc-list li.active { background: var(--accent-soft); }
+.acc-list .acc-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acc-list .acc-sub { display: block; color: var(--muted); font-size: 12px; }
+.acc-list .del { background: none; color: var(--muted); padding: 2px 6px; visibility: hidden; }
+.acc-list li:hover .del { visibility: visible; }
+.badge.acc { background: var(--accent-soft); }
+.list-warn { background: var(--accent-soft); font-size: 12px; cursor: default !important; }
 .badge { font-size: 11px; padding: 1px 6px; border-radius: 6px; background: var(--line); color: var(--text); margin-right: 4px; }
 
 .main { display: flex; flex-direction: column; min-width: 0; }

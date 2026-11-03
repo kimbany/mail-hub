@@ -89,6 +89,7 @@ const SITE_PASSWORD = process.env.SITE_PASSWORD;
 const sitePwHash = SITE_PASSWORD ? hashPassword(SITE_PASSWORD) : null;
 
 module.exports = {
+  ALL: '__all', // 전체 메일함의 분류 규칙은 accountId 가 이 값이다.
   init,
   isSetup: () => !!(sitePwHash || state.passwordHash),
   setPassword(pw) { if (sitePwHash) throw new Error('SITE_PASSWORD 로 설정되어 있습니다.'); state.passwordHash = hashPassword(pw); return save(); },
