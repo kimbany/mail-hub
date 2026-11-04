@@ -5,6 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>메일 통합 조회</title>
 <link rel="stylesheet" href="style.css">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#2f6fed">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="메일함">
 </head>
 <body>
   <!-- 로그인 / 최초 설정 -->
@@ -25,6 +32,11 @@
         <span class="acc-sub">모든 계정을 한 목록에</span></div></li></ul>
       <ul id="account-list" class="acc-list"></ul>
       <button id="add-account-btn" class="ghost">+ 계정 추가</button>
+      <div class="push-box">
+        <button id="push-btn" class="ghost">🔔 새 메일 알림 켜기</button>
+        <button id="push-test-btn" class="link hidden">알림 테스트 보내기</button>
+        <p id="push-msg" class="help"></p>
+      </div>
       <button id="logout-btn" class="link">로그아웃</button>
     </aside>
 

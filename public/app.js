@@ -55,6 +55,9 @@ $('#logout-btn').onclick = async () => { await api('/api/logout', { method: 'POS
 async function loadAccounts() {
   state.accounts = await api('/api/accounts');
   renderAccounts();
+  // 알림을 눌러 들어온 경우 (?account=…) 그 계정을 연다.
+  const want = new URLSearchParams(location.search).get('account');
+  if (want && state.accounts.some((a) => a.id === want)) { history.replaceState(null, '', '/'); selectAccount(want); return; }
   if (!state.current && state.accounts.length) selectAccount(state.accounts.length > 1 ? ALL : state.accounts[0].id);
   if (!state.accounts.length) { state.current = null; renderEmpty(); }
 }
@@ -263,7 +266,85 @@ async function startApp() {
     Object.entries(state.providers).map(([k, p]) => `<option value="${k}">${esc(p.name)}</option>`).join('') +
     '<option value="custom">기타 (직접 입력)</option>';
   await loadAccounts();
+  initPush();
 }
+
+// ---------- 새 메일 푸시 알림 ----------
+const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+
+function b64ToBytes(b64) {
+  const s = atob((b64 + '='.repeat((4 - (b64.length % 4)) % 4)).replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from(s, (c) => c.charCodeAt(0));
+}
+
+async function pushSubscription() {
+  const reg = await navigator.serviceWorker.ready;
+  return reg.pushManager.getSubscription();
+}
+
+function setPushUI(on, msg = '') {
+  $('#push-btn').textContent = on ? '🔕 새 메일 알림 끄기' : '🔔 새 메일 알림 켜기';
+  $('#push-btn').dataset.on = on ? '1' : '';
+  $('#push-test-btn').classList.toggle('hidden', !on);
+  $('#push-msg').textContent = msg;
+}
+
+async function initPush() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+    $('#push-btn').disabled = true;
+    setPushUI(false, isIOS && !standalone
+      ? '아이폰은 Safari 공유 버튼 → "홈 화면에 추가"로 설치한 뒤, 홈 화면 아이콘으로 열어야 알림을 켤 수 있어요.'
+      : '이 브라우저는 알림을 지원하지 않아요.');
+    return;
+  }
+  await navigator.serviceWorker.register('sw.js');
+  const sub = await pushSubscription();
+  let on = false;
+  if (sub && Notification.permission === 'granted') {
+    on = (await api('/api/push/status', { method: 'POST', body: { endpoint: sub.endpoint } })).subscribed;
+    if (!on) { await api('/api/push/subscribe', { method: 'POST', body: sub.toJSON() }); on = true; } // 서버 쪽 기록이 사라졌으면 다시 등록
+  }
+  setPushUI(on, on ? '이 기기로 새 메일 알림이 와요.' : '');
+}
+
+$('#push-btn').onclick = async () => {
+  const btn = $('#push-btn');
+  btn.disabled = true;
+  try {
+    if (btn.dataset.on) {
+      const sub = await pushSubscription();
+      if (sub) {
+        await api('/api/push/unsubscribe', { method: 'POST', body: { endpoint: sub.endpoint } });
+        await sub.unsubscribe();
+      }
+      setPushUI(false, '이 기기의 알림을 껐어요.');
+      return;
+    }
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') {
+      setPushUI(false, '알림 권한이 거부됐어요. 폰 설정에서 이 앱의 알림을 허용해 주세요.');
+      return;
+    }
+    const { publicKey } = await api('/api/push/key');
+    const reg = await navigator.serviceWorker.ready;
+    const sub = (await reg.pushManager.getSubscription())
+      || (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(publicKey) }));
+    await api('/api/push/subscribe', { method: 'POST', body: sub.toJSON() });
+    setPushUI(true, '알림을 켰어요. 지금 이후로 오는 새 메일부터 알려 드려요.');
+  } catch (err) {
+    setPushUI(false, `알림을 켜지 못했어요: ${err.message}`);
+  } finally {
+    btn.disabled = false;
+  }
+};
+
+$('#push-test-btn').onclick = async () => {
+  try {
+    const r = await api('/api/push/test', { method: 'POST' });
+    $('#push-msg').textContent = r.sent ? '테스트 알림을 보냈어요.' : '보낼 기기가 없어요. 알림을 다시 켜 주세요.';
+  } catch (err) { $('#push-msg').textContent = err.message; }
+};
 
 (async () => {
   const s = await api('/api/status');
