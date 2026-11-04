@@ -55,9 +55,21 @@ const wrap = (fn) => (req, res) =>
     res.status(500).json({ error: friendlyError(e) });
   });
 
-function friendlyError(e) {
+const LOGIN_HINTS = {
+  gmail: 'Gmail은 일반 비밀번호로는 안 되고, 2단계 인증을 켠 뒤 만든 16자리 앱 비밀번호가 필요해요.',
+  naver: '네이버는 메일 환경설정에서 IMAP 사용을 켜야 하고, 2단계 인증 중이면 애플리케이션 비밀번호가 필요해요. 해외 로그인 차단도 꺼 주세요.',
+  daum: '다음은 메일 환경설정에서 IMAP 사용을 켜야 하고, 2단계 인증 중이면 앱 비밀번호가 필요해요.',
+  kakao: '카카오메일은 메일 환경설정에서 IMAP을 켜고 안내되는 앱 비밀번호를 넣어야 해요.',
+  nate: '네이트는 메일 환경설정에서 IMAP 사용을 켜야 해요.',
+};
+
+function friendlyError(e, provider) {
   const msg = String((e && (e.responseText || e.message)) || e);
-  if (e && e.authenticationFailed) return '로그인 실패: 아이디/앱 비밀번호와 IMAP 사용 설정을 확인하세요.';
+  if (e && e.authenticationFailed) {
+    const hint = LOGIN_HINTS[provider] || '아이디/비밀번호와 IMAP 사용 설정을 확인하세요.';
+    const server = e.responseText ? ` (메일 서버 응답: ${e.responseText})` : '';
+    return `로그인 실패: ${hint}${server}`;
+  }
   if (/ENOTFOUND|ECONNREFUSED|ETIMEDOUT/.test(msg)) return `메일 서버에 연결할 수 없습니다 (${msg}).`;
   return msg;
 }
@@ -102,13 +114,21 @@ app.get('/api/providers', (req, res) => res.json(mail.PROVIDERS));
 app.get('/api/accounts', auth, (req, res) => res.json(store.listAccounts()));
 
 app.post('/api/accounts', auth, wrap(async (req, res) => {
-  const { provider, email, password, label } = req.body || {};
-  let { host, port } = req.body || {};
+  const { provider, label } = req.body || {};
+  let { host, port, email, password } = req.body || {};
+  email = String(email || '').trim();
+  password = String(password || '');
+  // Gmail 등 앱 비밀번호는 "abcd efgh ijkl mnop" 처럼 띄어 보여 주므로 공백을 뺀다.
+  if (['gmail', 'naver', 'daum', 'kakao'].includes(provider)) password = password.replace(/\s+/g, '');
   const p = mail.PROVIDERS[provider];
   if (p) { host = p.host; port = p.port; }
   if (!email || !password || !host) return res.status(400).json({ error: '메일 주소, 비밀번호, 서버 정보가 필요합니다.' });
   port = Number(port) || 993;
-  await mail.testLogin({ host, port, email, password }); // 저장 전에 실제로 로그인되는지 확인
+  try {
+    await mail.testLogin({ host, port, email, password }); // 저장 전에 실제로 로그인되는지 확인
+  } catch (e) {
+    return res.status(400).json({ error: friendlyError(e, provider) });
+  }
   res.json(store.addAccount({ provider: provider || 'custom', email, label, host, port, password }));
 }));
 
@@ -150,7 +170,7 @@ app.get('/api/all/messages', auth, wrap(async (req, res) => {
       const list = await inboxOf(store.getAccountWithSecret(a.id), req.query);
       return list.map((m) => ({ ...m, accountId: a.id, category: mail.classify(m, rules) }));
     } catch (e) {
-      errors.push({ accountId: a.id, label: a.label, error: friendlyError(e) });
+      errors.push({ accountId: a.id, label: a.label, error: friendlyError(e, a.provider) });
       return [];
     }
   }));
