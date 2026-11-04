@@ -51,7 +51,7 @@ function verifyPassword(pw, stored) {
   return crypto.timingSafeEqual(test, hash);
 }
 
-let state = { passwordHash: null, accounts: [], rules: [] };
+let state = { passwordHash: null, accounts: [], rules: [], vapid: null, pushSubs: [], seen: {} };
 let pool = null;
 
 // 전체 상태를 한 덩어리 JSON 으로 저장한다 (개인용이라 데이터가 작다).
@@ -113,6 +113,7 @@ module.exports = {
   removeAccount(accountId) {
     state.accounts = state.accounts.filter((a) => a.id !== accountId);
     state.rules = state.rules.filter((r) => r.accountId !== accountId);
+    delete state.seen[accountId];
     save();
   },
 
@@ -124,4 +125,26 @@ module.exports = {
     return r;
   },
   removeRule(ruleId) { state.rules = state.rules.filter((r) => r.id !== ruleId); save(); },
+
+  // ---- 푸시 알림 ----
+  // VAPID 키는 처음 한 번 만들어 저장소에 둔다 (개인키는 암호화).
+  getVapid(generate) {
+    if (!state.vapid) {
+      const k = generate();
+      state.vapid = { publicKey: k.publicKey, privateEnc: encrypt(k.privateKey) };
+      save();
+    }
+    return { publicKey: state.vapid.publicKey, privateKey: decrypt(state.vapid.privateEnc) };
+  },
+  listPushSubs: () => state.pushSubs,
+  addPushSub(sub) {
+    state.pushSubs = state.pushSubs.filter((s) => s.endpoint !== sub.endpoint);
+    state.pushSubs.push({ endpoint: sub.endpoint, keys: sub.keys, at: new Date().toISOString() });
+    return save();
+  },
+  removePushSub(endpoint) { state.pushSubs = state.pushSubs.filter((s) => s.endpoint !== endpoint); return save(); },
+  hasPushSub: (endpoint) => state.pushSubs.some((s) => s.endpoint === endpoint),
+  // 계정별로 어디까지 알림을 보냈는지 (IMAP UIDVALIDITY + 마지막 UID)
+  getSeen: (accountId) => state.seen[accountId] || null,
+  setSeen(accountId, v) { state.seen[accountId] = v; return save(); },
 };

@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const express = require('express');
 const store = require('./store');
 const mail = require('./mail');
+const notifier = require('./notifier');
 
 const PORT = Number(process.env.PORT || 3000);
 // Render 같은 호스팅에서는 외부 접속을 받아야 하므로 0.0.0.0, 내 PC 에서는 127.0.0.1.
@@ -186,12 +187,40 @@ app.delete('/api/rules/:id', auth, (req, res) => {
   res.json({ ok: true });
 });
 
+// ---- 푸시 알림 ----
+app.get('/api/push/key', auth, (req, res) => res.json({ publicKey: notifier.setupVapid() }));
+
+app.post('/api/push/subscribe', auth, wrap(async (req, res) => {
+  const sub = req.body || {};
+  if (!/^https:\/\//.test(sub.endpoint || '') || !sub.keys || !sub.keys.p256dh || !sub.keys.auth) {
+    return res.status(400).json({ error: '알림 구독 정보가 올바르지 않습니다.' });
+  }
+  await store.addPushSub(sub);
+  notifier.checkAll().catch(() => {}); // 기준점을 바로 잡아 둔다
+  res.json({ ok: true });
+}));
+
+app.post('/api/push/unsubscribe', auth, wrap(async (req, res) => {
+  await store.removePushSub((req.body || {}).endpoint);
+  res.json({ ok: true });
+}));
+
+app.post('/api/push/status', auth, (req, res) => res.json({ subscribed: store.hasPushSub((req.body || {}).endpoint) }));
+
+app.post('/api/push/test', auth, wrap(async (req, res) => {
+  notifier.setupVapid();
+  const sent = await notifier.send({ title: '메일 통합 조회', body: '알림이 잘 와요! 새 메일이 오면 이렇게 알려 드릴게요.', tag: 'test', url: '/' });
+  res.json({ sent });
+}));
+
 if (require.main === module) {
   if (PUBLIC && !process.env.SITE_PASSWORD) {
     console.error('인터넷에 공개할 때는 SITE_PASSWORD 환경변수로 사이트 비밀번호를 꼭 정해야 합니다.');
     process.exit(1);
   }
   store.init().then(() => {
+    notifier.setupVapid();
+    notifier.start();
     app.listen(PORT, HOST, () => console.log(`메일 통합 조회: http://${PUBLIC ? 'localhost' : HOST}:${PORT}`));
   }).catch((e) => { console.error('저장소를 열 수 없습니다:', e.message); process.exit(1); });
 }

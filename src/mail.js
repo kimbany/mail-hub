@@ -93,4 +93,19 @@ function classify(msg, rules) {
   return null;
 }
 
-module.exports = { PROVIDERS, RULE_FIELDS, testLogin, listInbox, getMessage, classify };
+// 알림용: lastUid 보다 새로 들어온 메일만 가져온다 (본문 없이 봉투 정보만).
+async function newSince(acc, lastUid) {
+  return withInbox(acc, async (c) => {
+    const box = { uidValidity: String(c.mailbox.uidValidity), uidNext: Number(c.mailbox.uidNext) };
+    const out = [];
+    if (lastUid != null && c.mailbox.exists && box.uidNext > lastUid + 1) {
+      for await (const m of c.fetch(`${lastUid + 1}:*`, { uid: true, envelope: true }, { uid: true })) {
+        if (m.uid <= lastUid) continue; // "n:*" 는 새 메일이 없어도 마지막 메일을 돌려줄 수 있다
+        out.push({ uid: m.uid, subject: m.envelope.subject || '(제목 없음)', from: fmtAddr(m.envelope.from), to: fmtAddr(m.envelope.to) });
+      }
+    }
+    return { ...box, messages: out };
+  });
+}
+
+module.exports = { PROVIDERS, RULE_FIELDS, testLogin, listInbox, getMessage, newSince, classify };

@@ -77,3 +77,6 @@ dialog h3 { margin-top: 0; }
   .panes { grid-template-columns: 1fr; }
   .message-list { max-height: 50vh; }
 }
+
+.push-box { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+.push-box .help { margin: 0; }
